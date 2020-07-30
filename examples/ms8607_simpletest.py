@@ -11,5 +11,6 @@ sensor = MS8607Humidity(i2c)
 while True:
 
     print("%.2f %% rH" % sensor.relative_humidity)
+    print("%.2f C" % sensor.temperature)
     print("\n------------------------------------------------")
     sleep(1)

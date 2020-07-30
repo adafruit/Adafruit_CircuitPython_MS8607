@@ -45,7 +45,10 @@ _MS8607_READ_SERIAL_FIRST_8BYTES_COMMAND = const(0xFA0F)  #
 _MS8607_READ_SERIAL_LAST_6BYTES_COMMAND = const(0xFCC9)  #
 _MS8607_WRITE_USER_REG_COMMAND = const(0xE6)  #
 _MS8607_READ_USER_REG_COMMAND = const(0xE7)  #
+_MS8607_PRESSURE_CALIB_ROM_ADDR = const(0xA0)  #  16-bit registers through 0xAE
 
+
+_MS8607_PTSENSOR_ADDR = const(0x76)  #
 _MS8607_HSENSOR_ADDR = const(0x40)  #
 _MS8607_COEFF_MUL = const(125)  #
 _MS8607_COEFF_ADD = const(-6)  #
@@ -69,11 +72,79 @@ class MS8607Humidity:
 
     def __init__(self, i2c_bus):
 
-        self.i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_HSENSOR_ADDR)
+        self.humidity_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_HSENSOR_ADDR)
+        self.pressure_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_PTSENSOR_ADDR)
 
-        # self.reset()
-        # self.initialize()
         self._buffer = bytearray(3)
+        self.reset()
+        self.initialize()
+
+    def reset(self):
+        """Reset the sensor to an initial unconfigured state"""
+
+    def initialize(self):
+        """Configure the sensors with the default settings and state.
+        For use after calling `reset()`
+        """
+        constants = []
+
+        for i in range(7):
+            offset = 2 * i
+            self._buffer[0] = _MS8607_PRESSURE_CALIB_ROM_ADDR + offset
+            with self.pressure_i2c_device as i2c:
+                i2c.write_then_readinto(
+                    self._buffer,
+                    self._buffer,
+                    out_start=0,
+                    out_end=1,
+                    in_start=0,
+                    in_end=2,
+                )
+
+            # print("got calibration constant %d(%s)"%(calibration_const, hex(calibration_const)))
+            constants.extend(unpack_from(">H", self._buffer[0:2]))
+
+        crc_value = (constants[0] & 0xF000) >> 12
+        constants.append(0)
+        if not self._check_press_calibration_crc(constants, crc_value):
+            raise RuntimeError("CRC Error reading humidity calibration constants")
+
+        self.press_sens = constants[1]
+        self.press_offset = constants[2]
+        self.press_sens_temp_coeff = constants[3]
+        self.press_offset_temp_coeff = constants[4]
+        self.ref_temp = constants[5]
+        self.temp_temp_coeff = constants[6]
+        # psensor_resolution_osr = MS8607_PRESSURE_RESOLUTION_OSR_8192
+        print("self.press_sens", self.press_sens)
+        print("self.press_offset", self.press_offset)
+
+        print("self.press_sens_temp_coeff", self.press_sens_temp_coeff)
+        print("self.press_offset_temp_coeff", self.press_offset_temp_coeff)
+        print("self.ref_temp", self.ref_temp)
+        print("self.temp_temp_coeff", self.temp_temp_coeff)
+
+    @property
+    def temperature(self):
+        """The current temperature in degrees Celcius"""
+        return 5
+        # # self._buffer.clear()
+        # self._buffer[0] = _MS8607_READ_HUMIDITY_WO_HOLD_COMMAND
+        # with self.i2c_device as i2c:
+        #     i2c.write(self._buffer, end=1)
+        # sleep(0.1)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
+
+        # with self.i2c_device as i2c:
+        #     i2c.readinto(self._buffer, end=3)
+
+        # # _adc = (buffer[0] << 8) | buffer[1]
+        # # crc = buffer[2]
+        # raw_humidity = unpack_from(">H", self._buffer)[0]
+        # crc_value = unpack_from(">B", self._buffer, offset=2)[0]
+        # humidity = (raw_humidity * (_MS8607_COEFF_MUL / (1 << 16))) + _MS8607_COEFF_ADD
+        # if not self._check_humidity_crc(raw_humidity, crc_value):
+        #     raise RuntimeError("CRC Error reading humidity data")
+        # return humidity
 
     @property
     def relative_humidity(self):
@@ -81,11 +152,11 @@ class MS8607Humidity:
 
         # self._buffer.clear()
         self._buffer[0] = _MS8607_READ_HUMIDITY_WO_HOLD_COMMAND
-        with self.i2c_device as i2c:
+        with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
         sleep(0.1)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
 
-        with self.i2c_device as i2c:
+        with self.humidity_i2c_device as i2c:
             i2c.readinto(self._buffer, end=3)
 
         # _adc = (buffer[0] << 8) | buffer[1]
@@ -121,6 +192,35 @@ class MS8607Humidity:
         if result == crc:
             return True
         return False
+
+    @staticmethod
+    def _check_press_calibration_crc(calibration_int16s, crc):
+        cnt = 0
+        n_rem = 0
+        n_rem = 0
+        crc_read = calibration_int16s[0]
+        calibration_int16s[7] = 0
+        calibration_int16s[0] = 0x0FFF & (calibration_int16s[0])  # Clear the CRC byte
+
+        for cnt in range(16):
+            # Get next byte
+
+            if cnt % 2 == 1:
+                n_rem ^= calibration_int16s[cnt >> 1] & 0x00FF
+            else:
+                n_rem ^= calibration_int16s[cnt >> 1] >> 8
+
+            for _i in range(8, 0, -1):
+                if n_rem & 0x8000:
+                    n_rem = (n_rem << 1) ^ 0x3000
+                else:
+                    n_rem <<= 1
+                # we have to restrict to 16 bits
+                n_rem &= 0xFFFF
+
+        n_rem >>= 12
+        calibration_int16s[0] = crc_read
+        return n_rem == crc
 
 
 # read_temperature_pressure_humidity(float *t, float *p,
