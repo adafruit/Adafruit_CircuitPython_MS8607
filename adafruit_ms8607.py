@@ -54,10 +54,10 @@ _MS8607_COEFF_MUL = const(125)  #
 _MS8607_COEFF_ADD = const(-6)  #
 
 
-_MS8607_PT_CMD_RESET_COMMAND = const(0x1E) # Command to reset pressure sensor
-_MS8607_PT_CMD_PRESS_START = const(0x40) # Command to start pressure ADC measurement
-_MS8607_PT_CMD_TEMP_START = const(0x50) # Command to start temperature ADC measurement
-_MS8607_PT_CMD_READ_ADC = const(0x00) # Temp and pressure ADC read command
+_MS8607_PT_CMD_RESET_COMMAND = const(0x1E)  # Command to reset pressure sensor
+_MS8607_PT_CMD_PRESS_START = const(0x40)  # Command to start pressure ADC measurement
+_MS8607_PT_CMD_TEMP_START = const(0x50)  # Command to start temperature ADC measurement
+_MS8607_PT_CMD_READ_ADC = const(0x00)  # Temp and pressure ADC read command
 # enum MS8607_humidity_resolution
 #:
 #        MS8607_humidity_resolution_12b = 0,
@@ -83,7 +83,8 @@ class MS8607Humidity:
         self.reset()
         self.initialize()
         self._psensor_resolution_osr = 5
-
+        self._pressure = None
+        self._temperature = None
 
     def reset(self):
         """Reset the sensor to an initial unconfigured state"""
@@ -107,7 +108,6 @@ class MS8607Humidity:
                     in_end=2,
                 )
 
-            # print("got calibration constant %d(%s)"%(calibration_const, hex(calibration_const)))
             constants.extend(unpack_from(">H", self._buffer[0:2]))
 
         crc_value = (constants[0] & 0xF000) >> 12
@@ -115,19 +115,17 @@ class MS8607Humidity:
         if not self._check_press_calibration_crc(constants, crc_value):
             raise RuntimeError("CRC Error reading humidity calibration constants")
 
-        self.press_sens = constants[1]
-        self.press_offset = constants[2]
-        self.press_sens_temp_coeff = constants[3]
-        self.press_offset_temp_coeff = constants[4]
-        self.ref_temp = constants[5]
-        self.temp_temp_coeff = constants[6]
+        self._calibration_constants = constants
 
     @property
-    def temperature(self):
-        """The current temperature in degrees Celcius"""
-
-        dT, TEMP, OFF, SENS, P, T2, OFF2, SENS2, raw_temp, raw_pressure = (0,)*10
-
+    def _pressure_temperature(self):
+        press_sens = self._calibration_constants[1]
+        press_offset = self._calibration_constants[2]
+        press_sens_temp_coeff = self._calibration_constants[3]
+        press_offset_temp_coeff = self._calibration_constants[4]
+        ref_temp = self._calibration_constants[5]
+        temp_temp_coeff = self._calibration_constants[6]
+        #################
         # First read temperature
         cmd = self._psensor_resolution_osr * 2
         cmd |= _MS8607_PT_CMD_TEMP_START
@@ -139,13 +137,14 @@ class MS8607Humidity:
 
         self._buffer[0] = _MS8607_PT_CMD_READ_ADC
         with self.pressure_i2c_device as i2c:
-            i2c.write_then_readinto(self._buffer, self._buffer, out_start=0, out_end=1, in_start=1, in_end=3)
+            i2c.write_then_readinto(
+                self._buffer, self._buffer, out_start=0, out_end=1, in_start=1, in_end=3
+            )
 
         # temp is only 24 bits but unpack wants 4 bytes so add a forth byte
         self._buffer[0] = 0
         raw_temperature = unpack_from(">I", self._buffer)[0]
-
-
+        #################
 
         # next read pressure
         cmd = self._psensor_resolution_osr * 2
@@ -158,55 +157,65 @@ class MS8607Humidity:
 
         self._buffer[0] = _MS8607_PT_CMD_READ_ADC
         with self.pressure_i2c_device as i2c:
-            i2c.write_then_readinto(self._buffer, self._buffer, out_start=0, out_end=1, in_start=1, in_end=3)
+            i2c.write_then_readinto(
+                self._buffer, self._buffer, out_start=0, out_end=1, in_start=1, in_end=3
+            )
         # temp is only 24 bits but unpack wants 4 bytes so add a forth byte
         self._buffer[0] = 0
+
         raw_pressure = unpack_from(">I", self._buffer)[0]
-        raw_pressure >>=8
+        #################
 
-        dT = raw_temperature - (self.ref_temp << 8)
+        delta_temp = raw_temperature - (ref_temp << 8)
 
-        # # Actual temperature = 2000 + dT * TEMPSENS
-        TEMP = 2000 + (dT * self.temp_temp_coeff >> 23)
+        # # Actual temperature = 2000 + delta_temp * TEMPSENS
+        tmp_temp = 2000 + (delta_temp * temp_temp_coeff >> 23)
 
         # # Second order temperature compensation
-        if (TEMP < 2000):
-            T2 = (3 * (dT * dT)) >> 33
-            OFF2 = 61 * (TEMP - 2000) * (TEMP - 2000) / 16
-            SENS2 = 29 * (TEMP - 2000) * (TEMP - 2000) / 16
+        if tmp_temp < 2000:
+            t_sq = (3 * (delta_temp * delta_temp)) >> 33
+            offset_sq = 61 * (tmp_temp - 2000) * (tmp_temp - 2000) / 16
+            sens2 = 29 * (tmp_temp - 2000) * (tmp_temp - 2000) / 16
 
-        if (TEMP < -1500):
-            OFF2 += 17 * (TEMP + 1500) * (TEMP + 1500)
-            SENS2 += 9 * (TEMP + 1500) * (TEMP + 1500)
+        if tmp_temp < -1500:
+            offset_sq += 17 * (tmp_temp + 1500) * (tmp_temp + 1500)
+            sens2 += 9 * (tmp_temp + 1500) * (tmp_temp + 1500)
         #
         else:
-            T2 = (5 * (dT * dT)) >> 38
-            OFF2 = 0
-            SENS2 = 0
+            t_sq = (5 * (delta_temp * delta_temp)) >> 38
+            offset_sq = 0
+            sens2 = 0
         #
-        temperature = (TEMP - T2) / 100
-        return temperature
-        # # OFF = OFF_T1 + TCO * dT
-        # OFF = ((self.press_offset) << 17) +
-        #       ((self.press_offset_temp_coeff * dT) >> 6)
-        # OFF -= OFF2
+        # offset = OFF_T1 + TCO * delta_temp
+        # this can be refactored into a coefficient applied to delta_temp
+        offset = ((press_offset) << 17) + ((press_offset_temp_coeff * delta_temp) >> 6)
+        offset -= offset_sq
 
-        # # Sensitivity at actual temperature = SENS_T1 + TCS * dT
-        # SENS = (self.press_sens << 16) +((self.press_sens_temp_coeff * dT) >> 7)
-        # SENS -= SENS2
+        # Sensitivity at actual temperature = SENS_T1 + TCS * delta_temp
+        # this can be refactored into a coefficient applied to delta_temp
+        sensitivity = (press_sens << 16) + ((press_sens_temp_coeff * delta_temp) >> 7)
+        sensitivity -= sens2
 
-        # # Temperature compensated pressure = D1 * SENS - OFF
-        # P = (((raw_pressure * SENS) >> 21) - OFF) >> 15
+        # Temperature compensated pressure = D1 * sensitivity - offset
+        temp_compensated_pressure = (
+            ((raw_pressure * sensitivity) >> 21) - offset
+        ) >> 15
 
-      
-        # pressure = (float)P / 100
+        self._temperature = (tmp_temp - t_sq) / 100
+        self._pressure = temp_compensated_pressure / 100
 
         # return status
+        return (self._temperature, self._pressure)
 
+    @property
+    def temperature(self):
+        """The current temperature in degrees Celcius"""
+        return self._pressure_temperature[0]
 
-
-
-
+    @property
+    def pressure(self):
+        """The current barometric pressure in hPa"""
+        return self._pressure_temperature[1]
 
     @property
     def relative_humidity(self):
@@ -263,8 +272,7 @@ class MS8607Humidity:
         crc_read = calibration_int16s[0]
         calibration_int16s[7] = 0
         calibration_int16s[0] = 0x0FFF & (calibration_int16s[0])  # Clear the CRC byte
-        for cal_int16 in calibration_int16s:
-            print("0x{0:2X}, ".format(cal_int16), end="")
+
         for cnt in range(16):
             # Get next byte
 
@@ -283,7 +291,6 @@ class MS8607Humidity:
 
         n_rem >>= 12
         calibration_int16s[0] = crc_read
-        print("calculated CRC:", n_rem, "retrieved crc:", crc)
         return n_rem == crc
 
 
