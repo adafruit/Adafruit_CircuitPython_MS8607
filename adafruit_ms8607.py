@@ -119,13 +119,63 @@ class MS8607Humidity:
 
     @property
     def _pressure_temperature(self):
-        press_sens = self._calibration_constants[1]
-        press_offset = self._calibration_constants[2]
-        press_sens_temp_coeff = self._calibration_constants[3]
-        press_offset_temp_coeff = self._calibration_constants[4]
-        ref_temp = self._calibration_constants[5]
-        temp_temp_coeff = self._calibration_constants[6]
-        #################
+        raw_temperature, raw_pressure = self._read_temp_pressure()
+
+        self._scale_temp_pressure(raw_temperature, raw_pressure)
+
+        return (self._temperature, self._pressure)
+
+    def _scale_temp_pressure(self, raw_temperature, raw_pressure):
+        # See figure 7 'PRESSURE COMPENSATION (SECOND ORDER OVER TEMPERATURE)'
+        # in the MS8607 datasheet
+        delta_temp = self._dt(raw_temperature)
+
+        initial_temp = 2000 + (delta_temp * self._calibration_constants[6] >> 23)
+
+        temp2, offset2, sensitivity2 = self._corrections(initial_temp, delta_temp)
+
+        self._temperature = (initial_temp - temp2) / 100
+        offset = self._pressure_offset(delta_temp) - offset2
+
+        sensitivity = self._pressure_scaling(delta_temp) - sensitivity2
+
+        self._pressure = ((((raw_pressure * sensitivity) >> 21) - offset) >> 15) / 100
+
+    @staticmethod
+    def _corrections(initial_temp, delta_temp):
+        # # Second order temperature compensation
+        if initial_temp < 2000:
+            delta_2k = initial_temp - 2000
+            temp_factor = delta_2k ** 2 >> 4
+            temp2 = (3 * delta_temp ** 2) >> 33
+            offset2 = 61 * temp_factor
+            sensitivity2 = 29 * temp_factor
+
+            if initial_temp < -1500:
+                delta_15k = initial_temp + 1500
+                temp_factor = delta_15k ** 2
+
+                offset2 += 17 * temp_factor
+                sensitivity2 += 9 * temp_factor
+            #
+        else:
+            temp2 = (5 * delta_temp ** 2) >> 38
+            offset2 = 0
+            sensitivity2 = 0
+        return temp2, offset2, sensitivity2
+
+    def _pressure_scaling(self, delta_temp):
+        return (self._calibration_constants[1] << 16) + (
+            (self._calibration_constants[3] * delta_temp) >> 7
+        )
+
+    def _pressure_offset(self, delta_temp):
+        return ((self._calibration_constants[2]) << 17) + (
+            (self._calibration_constants[4] * delta_temp) >> 6
+        )
+
+    def _read_temp_pressure(self):
+
         # First read temperature
         cmd = self._psensor_resolution_osr * 2
         cmd |= _MS8607_PT_CMD_TEMP_START
@@ -144,7 +194,6 @@ class MS8607Humidity:
         # temp is only 24 bits but unpack wants 4 bytes so add a forth byte
         self._buffer[0] = 0
         raw_temperature = unpack_from(">I", self._buffer)[0]
-        #################
 
         # next read pressure
         cmd = self._psensor_resolution_osr * 2
@@ -160,52 +209,16 @@ class MS8607Humidity:
             i2c.write_then_readinto(
                 self._buffer, self._buffer, out_start=0, out_end=1, in_start=1, in_end=3
             )
-        # temp is only 24 bits but unpack wants 4 bytes so add a forth byte
+        # pressure is only 24 bits but unpack wants 4 bytes so add a forth byte
         self._buffer[0] = 0
 
         raw_pressure = unpack_from(">I", self._buffer)[0]
-        #################
+        return raw_temperature, raw_pressure
 
-        delta_temp = raw_temperature - (ref_temp << 8)
+    def _dt(self, raw_temperature):
 
-        # # Actual temperature = 2000 + delta_temp * TEMPSENS
-        tmp_temp = 2000 + (delta_temp * temp_temp_coeff >> 23)
-
-        # # Second order temperature compensation
-        if tmp_temp < 2000:
-            t_sq = (3 * (delta_temp * delta_temp)) >> 33
-            offset_sq = 61 * (tmp_temp - 2000) * (tmp_temp - 2000) / 16
-            sens2 = 29 * (tmp_temp - 2000) * (tmp_temp - 2000) / 16
-
-        if tmp_temp < -1500:
-            offset_sq += 17 * (tmp_temp + 1500) * (tmp_temp + 1500)
-            sens2 += 9 * (tmp_temp + 1500) * (tmp_temp + 1500)
-        #
-        else:
-            t_sq = (5 * (delta_temp * delta_temp)) >> 38
-            offset_sq = 0
-            sens2 = 0
-        #
-        # offset = OFF_T1 + TCO * delta_temp
-        # this can be refactored into a coefficient applied to delta_temp
-        offset = ((press_offset) << 17) + ((press_offset_temp_coeff * delta_temp) >> 6)
-        offset -= offset_sq
-
-        # Sensitivity at actual temperature = SENS_T1 + TCS * delta_temp
-        # this can be refactored into a coefficient applied to delta_temp
-        sensitivity = (press_sens << 16) + ((press_sens_temp_coeff * delta_temp) >> 7)
-        sensitivity -= sens2
-
-        # Temperature compensated pressure = D1 * sensitivity - offset
-        temp_compensated_pressure = (
-            ((raw_pressure * sensitivity) >> 21) - offset
-        ) >> 15
-
-        self._temperature = (tmp_temp - t_sq) / 100
-        self._pressure = temp_compensated_pressure / 100
-
-        # return status
-        return (self._temperature, self._pressure)
+        ref_temp = self._calibration_constants[5]
+        return raw_temperature - (ref_temp << 8)
 
     @property
     def temperature(self):
