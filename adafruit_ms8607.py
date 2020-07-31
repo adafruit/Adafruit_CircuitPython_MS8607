@@ -67,8 +67,56 @@ _MS8607_PT_CMD_READ_ADC = const(0x00)  # Temp and pressure ADC read command
 # ]
 
 
-class MS8607Humidity:
-    """Library for the MS8607 Humidity Sensor
+class CV:
+    """struct helper"""
+
+    @classmethod
+    def add_values(cls, value_tuples):
+        """Add CV values to the class"""
+        cls.string = {}
+        cls.lsb = {}
+
+        for value_tuple in value_tuples:
+            name, value, string, lsb = value_tuple
+            setattr(cls, name, value)
+            cls.string[value] = string
+            cls.lsb[value] = lsb
+
+    @classmethod
+    def is_valid(cls, value):
+        """Validate that a given value is a member"""
+        return value in cls.string
+
+
+# class Flicker(CV):
+#     """Options for ``flicker_detection_type``"""
+
+#     pass  # pylint: disable=unnecessary-pass
+
+
+# Flicker.add_values((("FLICKER_100HZ", 0, 100, None), ("FLICKER_1000HZ", 1, 1000, None)))
+
+
+class PressureResolution(CV):
+    """Options for `pressure_resolution`"""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
+PressureResolution.add_values(
+    (
+        ("OSR_256", 0, 256, 0.001),
+        ("OSR_512", 1, 512, 0.002),
+        ("OSR_1024", 2, 1024, 0.003),
+        ("OSR_2048", 3, 2048, 0.005),
+        ("OSR_4096", 4, 4096, 0.009),
+        ("OSR_8192", 5, 8192, 0.019),
+    )
+)
+
+
+class MS8607:
+    """Library for the MS8607 Pressure Temperature and Humidity Sensor
 
 
         :param ~busio.I2C i2c_bus: The I2C bus the MS8607 is connected to.
@@ -82,7 +130,9 @@ class MS8607Humidity:
         self._buffer = bytearray(4)
         self.reset()
         self.initialize()
-        self._psensor_resolution_osr = 5
+        self.pressure_resolution = (
+            PressureResolution.OSR_8192  # pylint:disable=no-member
+        )
         self._pressure = None
         self._temperature = None
 
@@ -141,6 +191,21 @@ class MS8607Humidity:
 
         self._pressure = ((((raw_pressure * sensitivity) >> 21) - offset) >> 15) / 100
 
+    @property
+    def pressure_resolution(self):
+        """The measurement resolution used for the pressure and temperature sensor"""
+
+        return self._psensor_resolution_osr
+
+    @pressure_resolution.setter
+    def pressure_resolution(self, resolution):
+        if not PressureResolution.is_valid(resolution):
+            raise AttributeError(
+                "pressure_resolution must be an `adafruit_ms8607.PressureResolution`"
+            )
+
+        self._psensor_resolution_osr = resolution
+
     @staticmethod
     def _corrections(initial_temp, delta_temp):
         # # Second order temperature compensation
@@ -177,14 +242,15 @@ class MS8607Humidity:
     def _read_temp_pressure(self):
 
         # First read temperature
+
         cmd = self._psensor_resolution_osr * 2
         cmd |= _MS8607_PT_CMD_TEMP_START
         self._buffer[0] = cmd
         with self.pressure_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
-
-        sleep(0.018)
-
+        # re-purposing lsb for integration time
+        integration_time = PressureResolution.lsb[self._psensor_resolution_osr]
+        sleep(integration_time)
         self._buffer[0] = _MS8607_PT_CMD_READ_ADC
         with self.pressure_i2c_device as i2c:
             i2c.write_then_readinto(
@@ -202,7 +268,7 @@ class MS8607Humidity:
         with self.pressure_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
 
-        sleep(0.18)
+        sleep(integration_time)
 
         self._buffer[0] = _MS8607_PT_CMD_READ_ADC
         with self.pressure_i2c_device as i2c:
@@ -255,6 +321,48 @@ class MS8607Humidity:
         # *adc = _adc
 
         # return status
+
+    # MS8607::set_humidity_resolution(enum MS8607_humidity_resolution res)
+    # {
+    # enum MS8607_status status;
+    # uint8_t reg_value, tmp = 0;
+    # uint32_t conversion_time = HSENSOR_CONVERSION_TIME_12b;
+
+    # if (res == MS8607_humidity_resolution_12b)
+    # {
+    #     tmp = HSENSOR_USER_REG_RESOLUTION_12b;
+    #     conversion_time = HSENSOR_CONVERSION_TIME_12b;
+    # }
+    # else if (res == MS8607_humidity_resolution_10b)
+    # {
+    #     tmp = HSENSOR_USER_REG_RESOLUTION_10b;
+    #     conversion_time = HSENSOR_CONVERSION_TIME_10b;
+    # }
+    # else if (res == MS8607_humidity_resolution_8b)
+    # {
+    #     tmp = HSENSOR_USER_REG_RESOLUTION_8b;
+    #     conversion_time = HSENSOR_CONVERSION_TIME_8b;
+    # }
+    # else if (res == MS8607_humidity_resolution_11b)
+    # {
+    #     tmp = HSENSOR_USER_REG_RESOLUTION_11b;
+    #     conversion_time = HSENSOR_CONVERSION_TIME_11b;
+    # }
+
+    # status = hsensor_read_user_register(&reg_value);
+    # if (status != MS8607_status_ok)
+    #     return status;
+
+    # // Clear the resolution bits
+    # reg_value &= ~HSENSOR_USER_REG_RESOLUTION_MASK;
+    # reg_value |= tmp & HSENSOR_USER_REG_RESOLUTION_MASK;
+
+    # hsensor_conversion_time = conversion_time;
+
+    # status = hsensor_write_user_register(reg_value);
+
+    # return status;
+    # }
 
     @staticmethod
     def _check_humidity_crc(value, crc):
@@ -331,3 +439,47 @@ class MS8607Humidity:
 # float temperature = getTemperature()
 # float compensated_RH= get_compensated_humidity(temperature, humidity, &compensated_RH)
 # float dew_point = get_dew_point(temperature, humidity, &dew_point)
+
+# bool begin(TwoWire &wirePort = Wire);
+# bool hsensor_heater_on;
+# bool hsensor_is_connected(void);
+# bool isConnected(void);
+# bool psensor_crc_check(uint16_t *n_prom, uint8_t crc);
+# bool psensor_is_connected(void);
+# boolean humidityHasBeenRead = true;
+# boolean pressureHasBeenRead = true;
+# boolean temperatureHasBeenRead = true;
+# double adjustToSeaLevel(double absolutePressure, double actualAltitude);
+# double altitudeChange(double currentPressure, double baselinePressure);
+# enum MS8607_humidity_i2c_master_mode hsensor_i2c_master_mode;
+# enum MS8607_status
+# enum MS8607_status disable_heater(void);
+# enum MS8607_status enable_heater(void);
+# enum MS8607_status get_battery_status(enum MS8607_battery_status *bat);
+# enum MS8607_status get_compensated_humidity(float temperature,
+# enum MS8607_status get_dew_point(float temperature, float relative_humidity,
+# enum MS8607_status get_heater_status(enum MS8607_heater_status *heater);
+# enum MS8607_status hsensor_crc_check(uint16_t value, uint8_t crc);
+# enum MS8607_status hsensor_humidity_conversion_and_read_adc(uint16_t *adc);
+# enum MS8607_status hsensor_read_relative_humidity(float *humidity);
+# enum MS8607_status hsensor_read_user_register(uint8_t *value);
+# enum MS8607_status hsensor_reset(void);
+# enum MS8607_status hsensor_write_user_register(uint8_t value);
+# enum MS8607_status psensor_conversion_and_read_adc(uint8_t cmd,
+# enum MS8607_status psensor_read_eeprom(void);
+# enum MS8607_status psensor_read_eeprom_coeff(uint8_t command,
+# enum MS8607_status psensor_read_pressure_and_temperature(float *temperature,
+# enum MS8607_status psensor_reset(void);
+# enum MS8607_status read_temperature_pressure_humidity(float *t, float *p,
+# enum MS8607_status reset(void);
+# float getHumidity();    //Returns the latest humidity measurement
+# float getPressure();    //Returns the latest pressure measurement
+# float getTemperature(); //Returns the latest temperature measurement
+# float globalHumidity;
+# float globalPressure;
+# float globalTemperature;
+# uint32_t hsensor_conversion_time;
+# uint32_t psensor_conversion_time[6];
+# void set_humidity_i2c_master_mode(enum MS8607_humidity_i2c_master_mode mode);
+# void set_pressure_resolution(enum MS8607_pressure_resolution res);
+# set_humidity_resolution(enum MS8607_humidity_resolution res);
