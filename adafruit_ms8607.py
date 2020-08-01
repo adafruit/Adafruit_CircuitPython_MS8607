@@ -37,29 +37,24 @@ from time import sleep
 from micropython import const
 import adafruit_bus_device.i2c_device as i2c_device
 
-# # HSENSOR device commands
-_MS8607_RESET_COMMAND = const(0xFE)  #
-_MS8607_READ_HUMIDITY_W_HOLD_COMMAND = const(0xE5)  #
-_MS8607_READ_HUMIDITY_WO_HOLD_COMMAND = const(0xF5)  #
-_MS8607_READ_SERIAL_FIRST_8BYTES_COMMAND = const(0xFA0F)  #
-_MS8607_READ_SERIAL_LAST_6BYTES_COMMAND = const(0xFCC9)  #
+_MS8607_HSENSOR_ADDR = const(0x40)  #
+_MS8607_PTSENSOR_ADDR = const(0x76)  #
 
+
+_MS8607_HUM_USR_REG_RESOLUTION_MASK = const(0x81)
+_MS8607_HUM_USR_REG_HEATER_EN_MASK = const(0x4)
+_MS8607_HUM_COEFF_MUL = const(125)  #
+_MS8607_HUM_COEFF_ADD = const(-6)  #
+
+_MS8607_HUM_CMD_READ_HOLD = const(0xE5)  #
+_MS8607_HUM_CMD_READ_NO_HOLD = const(0xF5)  #
 _MS8607_HUM_CMD_READ_USR = const(0xE7)
 _MS8607_HUM_CMD_WRITE_USR = const(0xE6)
+_MS8607_HUM_CMD_RESET = const(0xFE)  #
 
-_MS8607_HUM_CMD_ENABLE_ONCHIP_HEATER_MASK = const(0x4)
+
 _MS8607_PT_CALIB_ROM_ADDR = const(0xA0)  #  16-bit registers through 0xAE
-
-_MS8607_HUM_USR_RESOLUTION_MASK = const(0x81)
-
-_MS8607_PTSENSOR_ADDR = const(0x76)  #
-_MS8607_HSENSOR_ADDR = const(0x40)  #
-
-_MS8607_COEFF_MUL = const(125)  #
-_MS8607_COEFF_ADD = const(-6)  #
-
-
-_MS8607_PT_CMD_RESET_COMMAND = const(0x1E)  # Command to reset pressure sensor
+_MS8607_PT_CMD_RESET = const(0x1E)  # Command to reset pressure sensor
 _MS8607_PT_CMD_PRESS_START = const(0x40)  # Command to start pressure ADC measurement
 _MS8607_PT_CMD_TEMP_START = const(0x50)  # Command to start temperature ADC measurement
 _MS8607_PT_CMD_READ_ADC = const(0x00)  # Temp and pressure ADC read command
@@ -133,24 +128,36 @@ class MS8607:
         self.humidity_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_HSENSOR_ADDR)
         self.pressure_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_PTSENSOR_ADDR)
         self._buffer = bytearray(4)
+        self._calibration_constants = []
+        self._pressure = None
+        self._temperature = None
         self.reset()
         self.initialize()
+
+    def reset(self):
+        """Reset the sensor to an initial unconfigured state"""
+        self._buffer[0] = _MS8607_HUM_CMD_RESET
+        with self.humidity_i2c_device as i2c:
+            i2c.write(self._buffer, end=1)
+
+        sleep(0.015)
+        self._buffer[0] = _MS8607_PT_CMD_RESET
+        with self.pressure_i2c_device as i2c:
+            i2c.write(self._buffer, end=1)
+
+    def initialize(self):
+        """Configure the sensors with the default settings and state.
+        For use after calling `reset()`
+        """
+        self._set_calibration_consts()
         self.pressure_resolution = (
             PressureResolution.OSR_8192  # pylint:disable=no-member
         )
         self.humidity_resolution = (
             HumidityResolution.OSR_4096  # pylint:disable=no-member
         )
-        self._pressure = None
-        self._temperature = None
 
-    def reset(self):
-        """Reset the sensor to an initial unconfigured state"""
-
-    def initialize(self):
-        """Configure the sensors with the default settings and state.
-        For use after calling `reset()`
-        """
+    def _set_calibration_consts(self):
         constants = []
 
         for i in range(7):
@@ -176,7 +183,8 @@ class MS8607:
         self._calibration_constants = constants
 
     @property
-    def _pressure_temperature(self):
+    def pressure_temperature(self):
+        """Pressure and Temperature, measured at the same time"""
         raw_temperature, raw_pressure = self._read_temp_pressure()
 
         self._scale_temp_pressure(raw_temperature, raw_pressure)
@@ -297,19 +305,19 @@ class MS8607:
     @property
     def temperature(self):
         """The current temperature in degrees Celcius"""
-        return self._pressure_temperature[0]
+        return self.pressure_temperature[0]
 
     @property
     def pressure(self):
         """The current barometric pressure in hPa"""
-        return self._pressure_temperature[1]
+        return self.pressure_temperature[1]
 
     @property
     def relative_humidity(self):
         """The current relative humidity in % rH"""
 
         # self._buffer.clear()
-        self._buffer[0] = _MS8607_READ_HUMIDITY_WO_HOLD_COMMAND
+        self._buffer[0] = _MS8607_HUM_CMD_READ_NO_HOLD
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
         sleep(0.016)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
@@ -319,7 +327,9 @@ class MS8607:
 
         raw_humidity = unpack_from(">H", self._buffer)[0]
         crc_value = unpack_from(">B", self._buffer, offset=2)[0]
-        humidity = (raw_humidity * (_MS8607_COEFF_MUL / (1 << 16))) + _MS8607_COEFF_ADD
+        humidity = (
+            raw_humidity * (_MS8607_HUM_COEFF_MUL / (1 << 16))
+        ) + _MS8607_HUM_COEFF_ADD
         if not self._check_humidity_crc(raw_humidity, crc_value):
             raise RuntimeError("CRC Error reading humidity data")
         return humidity
@@ -338,9 +348,9 @@ class MS8607:
         reg_value = self._read_hum_user_register()
 
         # Clear the resolution bits
-        reg_value &= ~_MS8607_HUM_USR_RESOLUTION_MASK
+        reg_value &= ~_MS8607_HUM_USR_REG_RESOLUTION_MASK
         # and then set them to the new value
-        reg_value |= resolution & _MS8607_HUM_USR_RESOLUTION_MASK
+        reg_value |= resolution & _MS8607_HUM_USR_REG_RESOLUTION_MASK
 
         self._set_hum_user_register(reg_value)
 
