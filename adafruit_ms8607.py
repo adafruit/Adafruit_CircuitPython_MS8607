@@ -43,13 +43,18 @@ _MS8607_READ_HUMIDITY_W_HOLD_COMMAND = const(0xE5)  #
 _MS8607_READ_HUMIDITY_WO_HOLD_COMMAND = const(0xF5)  #
 _MS8607_READ_SERIAL_FIRST_8BYTES_COMMAND = const(0xFA0F)  #
 _MS8607_READ_SERIAL_LAST_6BYTES_COMMAND = const(0xFCC9)  #
-_MS8607_WRITE_USER_REG_COMMAND = const(0xE6)  #
-_MS8607_READ_USER_REG_COMMAND = const(0xE7)  #
-_MS8607_PRESSURE_CALIB_ROM_ADDR = const(0xA0)  #  16-bit registers through 0xAE
 
+_MS8607_HUM_CMD_READ_USR = const(0xE7)
+_MS8607_HUM_CMD_WRITE_USR = const(0xE6)
+
+_MS8607_HUM_CMD_ENABLE_ONCHIP_HEATER_MASK = const(0x4)
+_MS8607_PT_CALIB_ROM_ADDR = const(0xA0)  #  16-bit registers through 0xAE
+
+_MS8607_HUM_USR_RESOLUTION_MASK = const(0x81)
 
 _MS8607_PTSENSOR_ADDR = const(0x76)  #
 _MS8607_HSENSOR_ADDR = const(0x40)  #
+
 _MS8607_COEFF_MUL = const(125)  #
 _MS8607_COEFF_ADD = const(-6)  #
 
@@ -58,13 +63,6 @@ _MS8607_PT_CMD_RESET_COMMAND = const(0x1E)  # Command to reset pressure sensor
 _MS8607_PT_CMD_PRESS_START = const(0x40)  # Command to start pressure ADC measurement
 _MS8607_PT_CMD_TEMP_START = const(0x50)  # Command to start temperature ADC measurement
 _MS8607_PT_CMD_READ_ADC = const(0x00)  # Temp and pressure ADC read command
-# enum MS8607_humidity_resolution
-#:
-#        MS8607_humidity_resolution_12b = 0,
-#        MS8607_humidity_resolution_8b,
-#        MS8607_humidity_resolution_10b,
-#        MS8607_humidity_resolution_11b
-# ]
 
 
 class CV:
@@ -88,13 +86,20 @@ class CV:
         return value in cls.string
 
 
-# class Flicker(CV):
-#     """Options for ``flicker_detection_type``"""
+class HumidityResolution(CV):
+    """Options for `pressure_resolution`"""
 
-#     pass  # pylint: disable=unnecessary-pass
+    pass  # pylint: disable=unnecessary-pass
 
 
-# Flicker.add_values((("FLICKER_100HZ", 0, 100, None), ("FLICKER_1000HZ", 1, 1000, None)))
+HumidityResolution.add_values(
+    (
+        ("OSR_256", 0x01, 8, 0.003),
+        ("OSR_1024", 0x80, 10, 0.005),
+        ("OSR_2048", 0x81, 11, 0.009),
+        ("OSR_4096", 0x00, 12, 0.016),
+    )
+)
 
 
 class PressureResolution(CV):
@@ -133,6 +138,9 @@ class MS8607:
         self.pressure_resolution = (
             PressureResolution.OSR_8192  # pylint:disable=no-member
         )
+        self.humidity_resolution = (
+            HumidityResolution.OSR_4096  # pylint:disable=no-member
+        )
         self._pressure = None
         self._temperature = None
 
@@ -147,7 +155,7 @@ class MS8607:
 
         for i in range(7):
             offset = 2 * i
-            self._buffer[0] = _MS8607_PRESSURE_CALIB_ROM_ADDR + offset
+            self._buffer[0] = _MS8607_PT_CALIB_ROM_ADDR + offset
             with self.pressure_i2c_device as i2c:
                 i2c.write_then_readinto(
                     self._buffer,
@@ -304,13 +312,11 @@ class MS8607:
         self._buffer[0] = _MS8607_READ_HUMIDITY_WO_HOLD_COMMAND
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
-        sleep(0.1)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
+        sleep(0.016)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
 
         with self.humidity_i2c_device as i2c:
             i2c.readinto(self._buffer, end=3)
 
-        # _adc = (buffer[0] << 8) | buffer[1]
-        # crc = buffer[2]
         raw_humidity = unpack_from(">H", self._buffer)[0]
         crc_value = unpack_from(">B", self._buffer, offset=2)[0]
         humidity = (raw_humidity * (_MS8607_COEFF_MUL / (1 << 16))) + _MS8607_COEFF_ADD
@@ -318,51 +324,42 @@ class MS8607:
             raise RuntimeError("CRC Error reading humidity data")
         return humidity
 
-        # *adc = _adc
+    @property
+    def humidity_resolution(self):
+        """The humidity sensor's measurement resolution"""
+        return self._humidity_resolution
 
-        # return status
+    @humidity_resolution.setter
+    def humidity_resolution(self, resolution):
+        if not HumidityResolution.is_valid(resolution):
+            raise AttributeError("humidity_resolution must be a Humidity Resolution")
 
-    # MS8607::set_humidity_resolution(enum MS8607_humidity_resolution res)
-    # {
-    # enum MS8607_status status;
-    # uint8_t reg_value, tmp = 0;
-    # uint32_t conversion_time = HSENSOR_CONVERSION_TIME_12b;
+        self._humidity_resolution = resolution
+        reg_value = self._read_hum_user_register()
 
-    # if (res == MS8607_humidity_resolution_12b)
-    # {
-    #     tmp = HSENSOR_USER_REG_RESOLUTION_12b;
-    #     conversion_time = HSENSOR_CONVERSION_TIME_12b;
-    # }
-    # else if (res == MS8607_humidity_resolution_10b)
-    # {
-    #     tmp = HSENSOR_USER_REG_RESOLUTION_10b;
-    #     conversion_time = HSENSOR_CONVERSION_TIME_10b;
-    # }
-    # else if (res == MS8607_humidity_resolution_8b)
-    # {
-    #     tmp = HSENSOR_USER_REG_RESOLUTION_8b;
-    #     conversion_time = HSENSOR_CONVERSION_TIME_8b;
-    # }
-    # else if (res == MS8607_humidity_resolution_11b)
-    # {
-    #     tmp = HSENSOR_USER_REG_RESOLUTION_11b;
-    #     conversion_time = HSENSOR_CONVERSION_TIME_11b;
-    # }
+        # Clear the resolution bits
+        reg_value &= ~_MS8607_HUM_USR_RESOLUTION_MASK
+        # and then set them to the new value
+        reg_value |= resolution & _MS8607_HUM_USR_RESOLUTION_MASK
 
-    # status = hsensor_read_user_register(&reg_value);
-    # if (status != MS8607_status_ok)
-    #     return status;
+        self._set_hum_user_register(reg_value)
 
-    # // Clear the resolution bits
-    # reg_value &= ~HSENSOR_USER_REG_RESOLUTION_MASK;
-    # reg_value |= tmp & HSENSOR_USER_REG_RESOLUTION_MASK;
+    def _read_hum_user_register(self):
 
-    # hsensor_conversion_time = conversion_time;
+        self._buffer[0] = _MS8607_HUM_CMD_READ_USR
+        with self.humidity_i2c_device as i2c:
+            i2c.write(self._buffer, end=1)
 
-    # status = hsensor_write_user_register(reg_value);
+        with self.humidity_i2c_device as i2c:
+            i2c.readinto(self._buffer, end=1)
 
-    # return status;
-    # }
+        return self._buffer[0]
+
+    def _set_hum_user_register(self, register_value):
+        self._buffer[0] = _MS8607_HUM_CMD_WRITE_USR
+        self._buffer[1] = register_value
+        with self.humidity_i2c_device as i2c:
+            i2c.write(self._buffer, end=1)
 
     @staticmethod
     def _check_humidity_crc(value, crc):
@@ -415,71 +412,10 @@ class MS8607:
         return n_rem == crc
 
 
-# read_temperature_pressure_humidity(float *t, float *p,
-
-# set_humidity_resolution(enum MS8607_humidity_resolution res)
-# void set_humidity_i2c_master_mode(enum MS8607_humidity_i2c_master_mode mode)
-
-# get_compensated_humidity(float temperature, float relative_humidity, float *compensated_humidity)
-
-# /*
-# private:
-# bool hsensor_is_connected(void)
+# psensor_reset(void)
 # hsensor_reset(void)
-# hsensor_crc_check(uint16_t value, uint8_t crc)
-# hsensor_read_user_register(uint8_t *value)
-# hsensor_write_user_register(uint8_t value)
-# enum MS8607_humidity_i2c_master_mode hsensor_i2c_master_mode
-# hsensor_humidity_conversion_and_read_adc(uint16_t *adc)
-# hsensor_read_relative_humidity(float *humidity)
-# int err = set_humidity_resolution(MS8607_humidity_resolution_12b) # 12 bits
-# hsensor_conversion_time = HSENSOR_CONVERSION_TIME_12b
-# hsensor_i2c_master_mode = MS8607_i2c_no_hold
-# float humidity = getHumidity()
-# float temperature = getTemperature()
-# float compensated_RH= get_compensated_humidity(temperature, humidity, &compensated_RH)
-# float dew_point = get_dew_point(temperature, humidity, &dew_point)
-
-# bool begin(TwoWire &wirePort = Wire);
-# bool hsensor_heater_on;
-# bool hsensor_is_connected(void);
-# bool isConnected(void);
-# bool psensor_crc_check(uint16_t *n_prom, uint8_t crc);
-# bool psensor_is_connected(void);
-# boolean humidityHasBeenRead = true;
-# boolean pressureHasBeenRead = true;
-# boolean temperatureHasBeenRead = true;
-# double adjustToSeaLevel(double absolutePressure, double actualAltitude);
-# double altitudeChange(double currentPressure, double baselinePressure);
-# enum MS8607_humidity_i2c_master_mode hsensor_i2c_master_mode;
-# enum MS8607_status
-# enum MS8607_status disable_heater(void);
-# enum MS8607_status enable_heater(void);
-# enum MS8607_status get_battery_status(enum MS8607_battery_status *bat);
-# enum MS8607_status get_compensated_humidity(float temperature,
-# enum MS8607_status get_dew_point(float temperature, float relative_humidity,
-# enum MS8607_status get_heater_status(enum MS8607_heater_status *heater);
-# enum MS8607_status hsensor_crc_check(uint16_t value, uint8_t crc);
-# enum MS8607_status hsensor_humidity_conversion_and_read_adc(uint16_t *adc);
-# enum MS8607_status hsensor_read_relative_humidity(float *humidity);
-# enum MS8607_status hsensor_read_user_register(uint8_t *value);
-# enum MS8607_status hsensor_reset(void);
-# enum MS8607_status hsensor_write_user_register(uint8_t value);
-# enum MS8607_status psensor_conversion_and_read_adc(uint8_t cmd,
-# enum MS8607_status psensor_read_eeprom(void);
-# enum MS8607_status psensor_read_eeprom_coeff(uint8_t command,
-# enum MS8607_status psensor_read_pressure_and_temperature(float *temperature,
-# enum MS8607_status psensor_reset(void);
-# enum MS8607_status read_temperature_pressure_humidity(float *t, float *p,
-# enum MS8607_status reset(void);
-# float getHumidity();    //Returns the latest humidity measurement
-# float getPressure();    //Returns the latest pressure measurement
-# float getTemperature(); //Returns the latest temperature measurement
-# float globalHumidity;
-# float globalPressure;
-# float globalTemperature;
-# uint32_t hsensor_conversion_time;
-# uint32_t psensor_conversion_time[6];
-# void set_humidity_i2c_master_mode(enum MS8607_humidity_i2c_master_mode mode);
-# void set_pressure_resolution(enum MS8607_pressure_resolution res);
-# set_humidity_resolution(enum MS8607_humidity_resolution res);
+# void set_humidity_i2c_master_mode(enum MS8607_humidity_i2c_master_mode mode)
+# disable_heater(void)
+# enable_heater(void)
+# get_heater_status(enum MS8607_heater_status *heater)
+# get_dew_point(float temperature, float relative_humidity,
