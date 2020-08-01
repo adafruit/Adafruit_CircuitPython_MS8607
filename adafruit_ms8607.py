@@ -183,7 +183,7 @@ class MS8607:
         self._calibration_constants = constants
 
     @property
-    def pressure_temperature(self):
+    def pressure_and_temperature(self):
         """Pressure and Temperature, measured at the same time"""
         raw_temperature, raw_pressure = self._read_temp_pressure()
 
@@ -305,22 +305,21 @@ class MS8607:
     @property
     def temperature(self):
         """The current temperature in degrees Celcius"""
-        return self.pressure_temperature[0]
+        return self.pressure_and_temperature[0]
 
     @property
     def pressure(self):
         """The current barometric pressure in hPa"""
-        return self.pressure_temperature[1]
+        return self.pressure_and_temperature[1]
 
     @property
     def relative_humidity(self):
         """The current relative humidity in % rH"""
 
-        # self._buffer.clear()
         self._buffer[0] = _MS8607_HUM_CMD_READ_NO_HOLD
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
-        sleep(0.016)  # _i2cPort->requestFrom((uint8_t)MS8607_HSENSOR_ADDR, 3U)
+        sleep(0.016)
 
         with self.humidity_i2c_device as i2c:
             i2c.readinto(self._buffer, end=3)
@@ -420,12 +419,3 @@ class MS8607:
         n_rem >>= 12
         calibration_int16s[0] = crc_read
         return n_rem == crc
-
-
-# psensor_reset(void)
-# hsensor_reset(void)
-# void set_humidity_i2c_master_mode(enum MS8607_humidity_i2c_master_mode mode)
-# disable_heater(void)
-# enable_heater(void)
-# get_heater_status(enum MS8607_heater_status *heater)
-# get_dew_point(float temperature, float relative_humidity,
