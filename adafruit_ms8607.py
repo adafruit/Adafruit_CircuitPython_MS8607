@@ -368,7 +368,8 @@ class MS8607:
         self._buffer[0] = _MS8607_HUM_CMD_WRITE_USR
         self._buffer[1] = register_value
         with self.humidity_i2c_device as i2c:
-            i2c.write(self._buffer, end=1)
+            # shouldn't this end at two?
+            i2c.write(self._buffer, end=2)
 
     @staticmethod
     def _check_humidity_crc(value, crc):
