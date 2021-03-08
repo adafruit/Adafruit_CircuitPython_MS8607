@@ -119,7 +119,7 @@ class MS8607:
     """Library for the MS8607 Pressure Temperature and Humidity Sensor
 
 
-        :param ~busio.I2C i2c_bus: The I2C bus the MS8607 is connected to.
+    :param ~busio.I2C i2c_bus: The I2C bus the MS8607 is connected to.
 
     """
 
