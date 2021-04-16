@@ -16,12 +16,13 @@ Implementation Notes
 
 **Hardware:**
 
-* `Adafruit MS8607 Breakout <https:#www.adafruit.com/products/4716>`_
+* `Adafruit's MS8607 Pressure Humidity Temperature Breakout
+  <https://www.adafruit.com/product/4716>`_
 
 **Software and Dependencies:**
 
 * Adafruit CircuitPython firmware for the supported boards:
-  https:#github.com/adafruit/circuitpython/releases
+  https://github.com/adafruit/circuitpython/releases
 
  * Adafruit's Bus Device library: https:#github.com/adafruit/Adafruit_CircuitPython_BusDevice
  * Adafruit's Register library: https:#github.com/adafruit/Adafruit_CircuitPython_Register
@@ -116,10 +117,38 @@ PressureResolution.add_values(
 
 
 class MS8607:
-    """Library for the MS8607 Pressure Temperature and Humidity Sensor
-
+    """
+    Library for the MS8607 Pressure, Temperature and Humidity Sensor
 
     :param ~busio.I2C i2c_bus: The I2C bus the MS8607 is connected to.
+
+
+    **Quickstart: Importing and using the MS8607 temperature sensor**
+
+        Here is one way of importing the `MS8607` class so you can use it with the name ``ms``.
+        First you will need to import the libraries to use the sensor
+
+        .. code-block:: python
+
+            import busio
+            import board
+            import adafruit_ms8607
+
+        Once this is done you can define your `busio.I2C` object and define your sensor object
+
+        .. code-block:: python
+
+            i2c = busio.I2C(board.SCL, board.SDA)
+            ms = adafruit_ms8607.MS8607(i2c)
+
+        Now you have access to the pressure, temperature and humidity using
+        the :attr:`pressure`, :attr:`temperature` and :attr:`relative_humidity` attributes
+
+        .. code-block:: python
+
+            temperature = ms.temperature
+            relative_humidity = ms.relative_humidity
+            pressure = ms.pressure
 
     """
 
