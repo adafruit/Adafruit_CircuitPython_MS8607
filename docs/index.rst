@@ -27,7 +27,7 @@ Table of Contents
 .. toctree::
     :caption: Related Products
 
-* `Adafruit MS8607 Breakout <https://www.adafruit.com/products/4716>`_
+    Adafruit MS8607 Breakout <https://www.adafruit.com/products/4716>
 
 .. toctree::
     :caption: Other Links
