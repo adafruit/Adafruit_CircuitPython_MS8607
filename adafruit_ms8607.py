@@ -122,23 +122,21 @@ class MS8607:
 
     :param ~busio.I2C i2c_bus: The I2C bus the MS8607 is connected to.
 
-
     **Quickstart: Importing and using the MS8607 temperature sensor**
 
-        Here is one way of importing the `MS8607` class so you can use it with the name ``ms``.
+        Here is an example of using the :class:`MS8607` class.
         First you will need to import the libraries to use the sensor
 
         .. code-block:: python
 
-            import busio
             import board
             import adafruit_ms8607
 
-        Once this is done you can define your `busio.I2C` object and define your sensor object
+        Once this is done you can define your `board.I2C` object and define your sensor object
 
         .. code-block:: python
 
-            i2c = busio.I2C(board.SCL, board.SDA)
+            i2c = board.I2C()  # uses board.SCL and board.SDA
             ms = adafruit_ms8607.MS8607(i2c)
 
         Now you have access to the pressure, temperature and humidity using
