@@ -62,10 +62,9 @@ Usage Example
 
     from time import sleep
     import board
-    import busio
     from adafruit_ms8607 import MS8607
 
-    i2c = busio.I2C(board.SCL, board.SDA)
+    i2c = board.I2C()
     sensor = MS8607(i2c)
 
     while True:

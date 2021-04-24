@@ -23,6 +23,7 @@ Table of Contents
 .. toctree::
     :caption: Tutorials
 
+    Adafruit MS8607 Breakout Learning Guide <https://learn.adafruit.com/adafruit-te-ms8607-pht-sensor>
 
 .. toctree::
     :caption: Related Products
