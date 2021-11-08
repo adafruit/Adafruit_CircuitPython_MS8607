@@ -36,7 +36,7 @@ __repo__ = "https:#github.com/adafruit/Adafruit_CircuitPython_MS8607.git"
 from struct import unpack_from
 from time import sleep
 from micropython import const
-import adafruit_bus_device.i2c_device as i2c_device
+from adafruit_bus_device import i2c_device
 
 _MS8607_HSENSOR_ADDR = const(0x40)  #
 _MS8607_PTSENSOR_ADDR = const(0x76)  #
