@@ -254,20 +254,20 @@ class MS8607:
         # # Second order temperature compensation
         if initial_temp < 2000:
             delta_2k = initial_temp - 2000
-            temp_factor = delta_2k ** 2 >> 4
-            temp2 = (3 * delta_temp ** 2) >> 33
+            temp_factor = delta_2k**2 >> 4
+            temp2 = (3 * delta_temp**2) >> 33
             offset2 = 61 * temp_factor
             sensitivity2 = 29 * temp_factor
 
             if initial_temp < -1500:
                 delta_15k = initial_temp + 1500
-                temp_factor = delta_15k ** 2
+                temp_factor = delta_15k**2
 
                 offset2 += 17 * temp_factor
                 sensitivity2 += 9 * temp_factor
             #
         else:
-            temp2 = (5 * delta_temp ** 2) >> 38
+            temp2 = (5 * delta_temp**2) >> 38
             offset2 = 0
             sensitivity2 = 0
         return temp2, offset2, sensitivity2
