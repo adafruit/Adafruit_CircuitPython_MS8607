@@ -151,7 +151,6 @@ class MS8607:
     """
 
     def __init__(self, i2c_bus):
-
         self.humidity_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_HSENSOR_ADDR)
         self.pressure_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_PTSENSOR_ADDR)
         self._buffer = bytearray(4)
@@ -283,7 +282,6 @@ class MS8607:
         )
 
     def _read_temp_pressure(self):
-
         # First read temperature
 
         cmd = self._psensor_resolution_osr * 2
@@ -325,7 +323,6 @@ class MS8607:
         return raw_temperature, raw_pressure
 
     def _dt(self, raw_temperature):
-
         ref_temp = self._calibration_constants[5]
         return raw_temperature - (ref_temp << 8)
 
@@ -381,7 +378,6 @@ class MS8607:
         self._set_hum_user_register(reg_value)
 
     def _read_hum_user_register(self):
-
         self._buffer[0] = _MS8607_HUM_CMD_READ_USR
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)

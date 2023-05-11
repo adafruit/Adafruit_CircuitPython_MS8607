@@ -9,7 +9,6 @@ i2c = board.I2C()  # uses board.SCL and board.SDA
 sensor = MS8607(i2c)
 
 while True:
-
     print("Pressure: %.2f hPa" % sensor.pressure)
     print("Temperature: %.2f C" % sensor.temperature)
     print("Humidity: %.2f %% rH" % sensor.relative_humidity)
