@@ -40,7 +40,7 @@ from adafruit_bus_device import i2c_device
 
 try:
     """Needed for type annotations"""
-    from typing import Tuple, Byte, Any
+    from typing import List, Tuple, Byte, Any
     from busio import I2C
 
 except ImportError:
@@ -74,7 +74,7 @@ class CV:
     """struct helper"""
 
     @classmethod
-    def add_values(cls, value_tuples: Tuple) -> None:
+    def add_values(cls, value_tuples: Tuple[List[Any]]) -> None:
         """Add CV values to the class"""
         cls.string = {}
         cls.lsb = {}
