@@ -40,7 +40,7 @@ from adafruit_bus_device import i2c_device
 
 try:
     """Needed for type annotations"""
-    from Typing import Tuple, Byte, Any
+    from typing import Tuple, Byte, Any
     from busio import I2C
 
 except ImportError:
