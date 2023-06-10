@@ -35,16 +35,16 @@ __repo__ = "https:#github.com/adafruit/Adafruit_CircuitPython_MS8607.git"
 
 from struct import unpack_from
 from time import sleep
-from micropython import const
+# from micropython import const
 from adafruit_bus_device import i2c_device
 
 try:
     """Needed for type annotations"""
     from busio import I2C
-    from typing import Tuple, Any, Byte
+    from typing import Tuple, Any
 
 except ImportError:
-    pass
+    print("Couldnt import")
 
 
 _MS8607_HSENSOR_ADDR = const(0x40)  #
@@ -386,7 +386,7 @@ class MS8607:
 
         self._set_hum_user_register(reg_value)
 
-    def _read_hum_user_register(self) -> Byte:
+    def _read_hum_user_register(self) -> bytearray:
         self._buffer[0] = _MS8607_HUM_CMD_READ_USR
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
