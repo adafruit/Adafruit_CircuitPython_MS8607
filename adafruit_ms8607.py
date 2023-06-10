@@ -396,7 +396,7 @@ class MS8607:
 
         return self._buffer[0]
 
-    def _set_hum_user_register(self, register_value: Byte) -> None:
+    def _set_hum_user_register(self, register_value: bytearray) -> None:
         self._buffer[0] = _MS8607_HUM_CMD_WRITE_USR
         self._buffer[1] = register_value
         with self.humidity_i2c_device as i2c:
@@ -404,7 +404,7 @@ class MS8607:
             i2c.write(self._buffer, end=2)
 
     @staticmethod
-    def _check_humidity_crc(value: int, crc: Byte) -> bool:
+    def _check_humidity_crc(value: int, crc: bytearray) -> bool:
         polynom = 0x988000  # x^8 + x^5 + x^4 + 1
         msb = 0x800000
         mask = 0xFF8000
@@ -425,7 +425,7 @@ class MS8607:
         return False
 
     @staticmethod
-    def _check_press_calibration_crc(calibration_int16s: bytearray, crc: Byte) -> bool:
+    def _check_press_calibration_crc(calibration_int16s: bytearray, crc: bytearray) -> bool:
         cnt = 0
         n_rem = 0
         n_rem = 0
