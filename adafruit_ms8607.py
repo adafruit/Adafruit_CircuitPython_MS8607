@@ -35,7 +35,7 @@ __repo__ = "https:#github.com/adafruit/Adafruit_CircuitPython_MS8607.git"
 
 from struct import unpack_from
 from time import sleep
-# from micropython import const
+from micropython import const
 from adafruit_bus_device import i2c_device
 
 try:
