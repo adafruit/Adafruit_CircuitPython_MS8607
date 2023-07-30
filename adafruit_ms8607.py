@@ -38,6 +38,15 @@ from time import sleep
 from micropython import const
 from adafruit_bus_device import i2c_device
 
+try:
+    """Needed for type annotations"""
+    from busio import I2C
+    from typing import Tuple, Any
+
+except ImportError:
+    print("Couldnt import")
+
+
 _MS8607_HSENSOR_ADDR = const(0x40)  #
 _MS8607_PTSENSOR_ADDR = const(0x76)  #
 
@@ -65,7 +74,7 @@ class CV:
     """struct helper"""
 
     @classmethod
-    def add_values(cls, value_tuples):
+    def add_values(cls, value_tuples: Tuple[Any]) -> None:
         """Add CV values to the class"""
         cls.string = {}
         cls.lsb = {}
@@ -77,7 +86,7 @@ class CV:
             cls.lsb[value] = lsb
 
     @classmethod
-    def is_valid(cls, value):
+    def is_valid(cls, value: Any) -> bool:
         """Validate that a given value is a member"""
         return value in cls.string
 
@@ -150,7 +159,7 @@ class MS8607:
 
     """
 
-    def __init__(self, i2c_bus):
+    def __init__(self, i2c_bus: I2C) -> None:
         self.humidity_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_HSENSOR_ADDR)
         self.pressure_i2c_device = i2c_device.I2CDevice(i2c_bus, _MS8607_PTSENSOR_ADDR)
         self._buffer = bytearray(4)
@@ -160,7 +169,7 @@ class MS8607:
         self.reset()
         self.initialize()
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the sensor to an initial unconfigured state"""
         self._buffer[0] = _MS8607_HUM_CMD_RESET
         with self.humidity_i2c_device as i2c:
@@ -171,7 +180,7 @@ class MS8607:
         with self.pressure_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
 
-    def initialize(self):
+    def initialize(self) -> None:
         """Configure the sensors with the default settings and state.
         For use after calling `reset()`
         """
@@ -183,7 +192,7 @@ class MS8607:
             HumidityResolution.OSR_4096  # pylint:disable=no-member
         )
 
-    def _set_calibration_consts(self):
+    def _set_calibration_consts(self) -> None:
         constants = []
 
         for i in range(7):
@@ -209,7 +218,7 @@ class MS8607:
         self._calibration_constants = constants
 
     @property
-    def pressure_and_temperature(self):
+    def pressure_and_temperature(self) -> None:
         """Pressure and Temperature, measured at the same time"""
         raw_temperature, raw_pressure = self._read_temp_pressure()
 
@@ -217,7 +226,7 @@ class MS8607:
 
         return (self._temperature, self._pressure)
 
-    def _scale_temp_pressure(self, raw_temperature, raw_pressure):
+    def _scale_temp_pressure(self, raw_temperature: int, raw_pressure: int) -> None:
         # See figure 7 'PRESSURE COMPENSATION (SECOND ORDER OVER TEMPERATURE)'
         # in the MS8607 datasheet
         delta_temp = self._dt(raw_temperature)
@@ -234,13 +243,13 @@ class MS8607:
         self._pressure = ((((raw_pressure * sensitivity) >> 21) - offset) >> 15) / 100
 
     @property
-    def pressure_resolution(self):
+    def pressure_resolution(self) -> PressureResolution:
         """The measurement resolution used for the pressure and temperature sensor"""
 
         return self._psensor_resolution_osr
 
     @pressure_resolution.setter
-    def pressure_resolution(self, resolution):
+    def pressure_resolution(self, resolution: PressureResolution) -> None:
         if not PressureResolution.is_valid(resolution):
             raise AttributeError(
                 "pressure_resolution must be an `adafruit_ms8607.PressureResolution`"
@@ -249,7 +258,7 @@ class MS8607:
         self._psensor_resolution_osr = resolution
 
     @staticmethod
-    def _corrections(initial_temp, delta_temp):
+    def _corrections(initial_temp: int, delta_temp: int) -> Tuple[int, int, int]:
         # # Second order temperature compensation
         if initial_temp < 2000:
             delta_2k = initial_temp - 2000
@@ -271,17 +280,17 @@ class MS8607:
             sensitivity2 = 0
         return temp2, offset2, sensitivity2
 
-    def _pressure_scaling(self, delta_temp):
+    def _pressure_scaling(self, delta_temp: int) -> int:
         return (self._calibration_constants[1] << 16) + (
             (self._calibration_constants[3] * delta_temp) >> 7
         )
 
-    def _pressure_offset(self, delta_temp):
+    def _pressure_offset(self, delta_temp: int) -> int:
         return ((self._calibration_constants[2]) << 17) + (
             (self._calibration_constants[4] * delta_temp) >> 6
         )
 
-    def _read_temp_pressure(self):
+    def _read_temp_pressure(self) -> Tuple[int, int]:
         # First read temperature
 
         cmd = self._psensor_resolution_osr * 2
@@ -322,22 +331,22 @@ class MS8607:
         raw_pressure = unpack_from(">I", self._buffer)[0]
         return raw_temperature, raw_pressure
 
-    def _dt(self, raw_temperature):
+    def _dt(self, raw_temperature: int) -> int:
         ref_temp = self._calibration_constants[5]
         return raw_temperature - (ref_temp << 8)
 
     @property
-    def temperature(self):
+    def temperature(self) -> float:
         """The current temperature in degrees Celcius"""
         return self.pressure_and_temperature[0]
 
     @property
-    def pressure(self):
+    def pressure(self) -> float:
         """The current barometric pressure in hPa"""
         return self.pressure_and_temperature[1]
 
     @property
-    def relative_humidity(self):
+    def relative_humidity(self) -> float:
         """The current relative humidity in % rH"""
 
         self._buffer[0] = _MS8607_HUM_CMD_READ_NO_HOLD
@@ -358,12 +367,12 @@ class MS8607:
         return humidity
 
     @property
-    def humidity_resolution(self):
+    def humidity_resolution(self) -> HumidityResolution:
         """The humidity sensor's measurement resolution"""
         return self._humidity_resolution
 
     @humidity_resolution.setter
-    def humidity_resolution(self, resolution):
+    def humidity_resolution(self, resolution: HumidityResolution) -> None:
         if not HumidityResolution.is_valid(resolution):
             raise AttributeError("humidity_resolution must be a Humidity Resolution")
 
@@ -377,7 +386,7 @@ class MS8607:
 
         self._set_hum_user_register(reg_value)
 
-    def _read_hum_user_register(self):
+    def _read_hum_user_register(self) -> bytearray:
         self._buffer[0] = _MS8607_HUM_CMD_READ_USR
         with self.humidity_i2c_device as i2c:
             i2c.write(self._buffer, end=1)
@@ -387,7 +396,7 @@ class MS8607:
 
         return self._buffer[0]
 
-    def _set_hum_user_register(self, register_value):
+    def _set_hum_user_register(self, register_value: bytearray) -> None:
         self._buffer[0] = _MS8607_HUM_CMD_WRITE_USR
         self._buffer[1] = register_value
         with self.humidity_i2c_device as i2c:
@@ -395,7 +404,7 @@ class MS8607:
             i2c.write(self._buffer, end=2)
 
     @staticmethod
-    def _check_humidity_crc(value, crc):
+    def _check_humidity_crc(value: int, crc: bytearray) -> bool:
         polynom = 0x988000  # x^8 + x^5 + x^4 + 1
         msb = 0x800000
         mask = 0xFF8000
@@ -416,7 +425,9 @@ class MS8607:
         return False
 
     @staticmethod
-    def _check_press_calibration_crc(calibration_int16s, crc):
+    def _check_press_calibration_crc(
+        calibration_int16s: bytearray, crc: bytearray
+    ) -> bool:
         cnt = 0
         n_rem = 0
         n_rem = 0
