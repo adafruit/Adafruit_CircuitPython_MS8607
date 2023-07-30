@@ -425,7 +425,9 @@ class MS8607:
         return False
 
     @staticmethod
-    def _check_press_calibration_crc(calibration_int16s: bytearray, crc: bytearray) -> bool:
+    def _check_press_calibration_crc(
+        calibration_int16s: bytearray, crc: bytearray
+    ) -> bool:
         cnt = 0
         n_rem = 0
         n_rem = 0
