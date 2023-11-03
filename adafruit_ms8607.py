@@ -40,11 +40,11 @@ from adafruit_bus_device import i2c_device
 
 try:
     """Needed for type annotations"""
-    from busio import I2C
     from typing import Tuple, Any
 
+    from busio import I2C
 except ImportError:
-    print("Couldnt import")
+    pass
 
 
 _MS8607_HSENSOR_ADDR = const(0x40)  #
