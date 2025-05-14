@@ -35,32 +35,33 @@ __repo__ = "https:#github.com/adafruit/Adafruit_CircuitPython_MS8607.git"
 
 from struct import unpack_from
 from time import sleep
-from micropython import const
+
 from adafruit_bus_device import i2c_device
+from micropython import const
 
 try:
     """Needed for type annotations"""
-    from typing import Tuple, Any
+    from typing import Any, Tuple
 
     from busio import I2C
 except ImportError:
     pass
 
 
-_MS8607_HSENSOR_ADDR = const(0x40)  #
-_MS8607_PTSENSOR_ADDR = const(0x76)  #
+_MS8607_HSENSOR_ADDR = const(0x40)
+_MS8607_PTSENSOR_ADDR = const(0x76)
 
 
 _MS8607_HUM_USR_REG_RESOLUTION_MASK = const(0x81)
 _MS8607_HUM_USR_REG_HEATER_EN_MASK = const(0x4)
-_MS8607_HUM_COEFF_MUL = const(125)  #
-_MS8607_HUM_COEFF_ADD = const(-6)  #
+_MS8607_HUM_COEFF_MUL = const(125)
+_MS8607_HUM_COEFF_ADD = const(-6)
 
-_MS8607_HUM_CMD_READ_HOLD = const(0xE5)  #
-_MS8607_HUM_CMD_READ_NO_HOLD = const(0xF5)  #
+_MS8607_HUM_CMD_READ_HOLD = const(0xE5)
+_MS8607_HUM_CMD_READ_NO_HOLD = const(0xF5)
 _MS8607_HUM_CMD_READ_USR = const(0xE7)
 _MS8607_HUM_CMD_WRITE_USR = const(0xE6)
-_MS8607_HUM_CMD_RESET = const(0xFE)  #
+_MS8607_HUM_CMD_RESET = const(0xFE)
 
 
 _MS8607_PT_CALIB_ROM_ADDR = const(0xA0)  #  16-bit registers through 0xAE
@@ -94,7 +95,7 @@ class CV:
 class HumidityResolution(CV):
     """Options for `pressure_resolution`"""
 
-    pass  # pylint: disable=unnecessary-pass
+    pass
 
 
 HumidityResolution.add_values(
@@ -110,7 +111,7 @@ HumidityResolution.add_values(
 class PressureResolution(CV):
     """Options for `pressure_resolution`"""
 
-    pass  # pylint: disable=unnecessary-pass
+    pass
 
 
 PressureResolution.add_values(
@@ -273,7 +274,6 @@ class MS8607:
 
                 offset2 += 17 * temp_factor
                 sensitivity2 += 9 * temp_factor
-            #
         else:
             temp2 = (5 * delta_temp**2) >> 38
             offset2 = 0
@@ -359,9 +359,7 @@ class MS8607:
 
         raw_humidity = unpack_from(">H", self._buffer)[0]
         crc_value = unpack_from(">B", self._buffer, offset=2)[0]
-        humidity = (
-            raw_humidity * (_MS8607_HUM_COEFF_MUL / (1 << 16))
-        ) + _MS8607_HUM_COEFF_ADD
+        humidity = (raw_humidity * (_MS8607_HUM_COEFF_MUL / (1 << 16))) + _MS8607_HUM_COEFF_ADD
         if not self._check_humidity_crc(raw_humidity, crc_value):
             raise RuntimeError("CRC Error reading humidity data")
         return humidity
@@ -425,9 +423,7 @@ class MS8607:
         return False
 
     @staticmethod
-    def _check_press_calibration_crc(
-        calibration_int16s: bytearray, crc: bytearray
-    ) -> bool:
+    def _check_press_calibration_crc(calibration_int16s: bytearray, crc: bytearray) -> bool:
         cnt = 0
         n_rem = 0
         n_rem = 0
