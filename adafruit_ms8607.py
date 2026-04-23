@@ -429,7 +429,7 @@ class MS8607:
         n_rem = 0
         crc_read = calibration_int16s[0]
         calibration_int16s[7] = 0
-        calibration_int16s[0] = 0x0FFF & (calibration_int16s[0])  # Clear the CRC byte
+        calibration_int16s[0] &= 0x0FFF  # Clear the CRC byte
 
         for cnt in range(16):
             # Get next byte
